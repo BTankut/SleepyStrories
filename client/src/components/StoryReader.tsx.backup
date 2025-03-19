@@ -1,0 +1,477 @@
+import { useState, useRef, useEffect } from 'react';
+import { CompleteStory } from '@shared/schema';
+import { useFavorites } from '@/hooks/useFavorites';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useToast } from '@/hooks/use-toast';
+import { useApp } from '@/lib/AppContext';
+import { ArrowLeft, Heart, User, ArrowLeftCircle, ArrowRightCircle, Pause, Play, Music } from 'lucide-react';
+
+interface StoryReaderProps {
+  story: CompleteStory;
+  onClose: () => void;
+}
+
+const StoryReader = ({ story, onClose }: StoryReaderProps) => {
+  const { t, language } = useApp();
+  const [currentPage, setCurrentPage] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioError, setAudioError] = useState(false);
+  
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const { toast } = useToast();
+  const { isFavorite, addToFavorites, removeFromFavorites, getFavoriteByStoryId } = useFavorites();
+  const isMobile = useIsMobile();
+  
+  const currentPageData = story.pages[currentPage];
+  const isStoryFavorite = isFavorite(story.id);
+  const favoriteId = getFavoriteByStoryId(story.id)?.id;
+  
+  // Track the current audio URL to detect changes
+  const [currentAudioUrl, setCurrentAudioUrl] = useState<string | null>(null);
+
+  // Setup audio event listeners
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    // Immediately reset states when page changes
+    setAudioLoaded(false);
+    setAudioProgress(0);
+    setAudioError(false);
+    setIsPlaying(false);
+
+    // Update current audio URL tracking
+    if (currentPageData?.audioUrl && currentPageData.audioUrl !== currentAudioUrl) {
+      setCurrentAudioUrl(currentPageData.audioUrl);
+    }
+
+    const handleLoadedMetadata = () => {
+      console.log("Audio loaded metadata successfully");
+      setAudioLoaded(true);
+      setAudioDuration(audio.duration);
+      setAudioError(false);
+    };
+    
+    const handleTimeUpdate = () => {
+      setAudioProgress(audio.currentTime);
+    };
+    
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setAudioProgress(0);
+      audio.currentTime = 0;
+    };
+    
+    const handlePlay = () => {
+      setIsPlaying(true);
+      console.log("Audio playing");
+    };
+    
+    const handlePause = () => {
+      setIsPlaying(false);
+      console.log("Audio paused");
+    };
+    
+    const handleError = (e: any) => {
+      const error = audioRef.current?.error;
+      console.error("Audio error:", e);
+      console.error("Error details:", error ? {
+        code: error.code,
+        message: error.message,
+        MEDIA_ERR_ABORTED: error.MEDIA_ERR_ABORTED,
+        MEDIA_ERR_NETWORK: error.MEDIA_ERR_NETWORK,
+        MEDIA_ERR_DECODE: error.MEDIA_ERR_DECODE,
+        MEDIA_ERR_SRC_NOT_SUPPORTED: error.MEDIA_ERR_SRC_NOT_SUPPORTED
+      } : 'No error details available');
+      
+      setAudioLoaded(false);
+      setIsPlaying(false);
+      setAudioError(true);
+      
+      toast({
+        title: t('reader.audio.error.title'),
+        description: t('reader.audio.error.description'),
+        variant: "destructive"
+      });
+
+      // Try fetching the audio directly to see if we get any errors
+      if (currentPageData?.audioUrl) {
+        fetch(currentPageData.audioUrl)
+          .then(response => {
+            if (!response.ok) {
+              console.error("Audio fetch failed:", response.status, response.statusText);
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            console.log("Audio fetch successful despite player error:", 
+              response.status, response.headers.get('Content-Type'));
+            return response.blob();
+          })
+          .catch(error => {
+            console.error("Audio fetch error:", error);
+          });
+      }
+    };
+
+    const handleCanPlay = () => {
+      console.log("Audio can play now");
+      setAudioLoaded(true);
+      setAudioError(false);
+    };
+
+    // Add event listeners
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('error', handleError);
+    audio.addEventListener('canplay', handleCanPlay);
+    
+    // Force reload the audio element with a delay to ensure DOM update
+    setTimeout(() => {
+      if (audio && currentPageData?.audioUrl) {
+        // Clear existing source
+        while (audio.firstChild) {
+          audio.removeChild(audio.firstChild);
+        }
+
+        // Create new source element with the current page audio
+        const source = document.createElement('source');
+        source.src = currentPageData.audioUrl;
+        source.type = 'audio/mpeg';
+        audio.appendChild(source);
+
+        console.log("Loading audio URL:", currentPageData.audioUrl);
+        audio.load();
+      }
+    }, 100);
+    
+    return () => {
+      // Clean up event listeners
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('error', handleError);
+      audio.removeEventListener('canplay', handleCanPlay);
+    };
+  }, [currentPage, currentPageData, toast, language, currentAudioUrl]);
+  
+  const handlePreviousPage = () => {
+    if (currentPage > 0) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+  
+  const handleNextPage = () => {
+    if (currentPage < story.pages.length - 1) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+  
+  const handleToggleFavorite = () => {
+    if (isStoryFavorite && favoriteId) {
+      removeFromFavorites(favoriteId);
+    } else {
+      addToFavorites({
+        storyId: story.id,
+        userProfileId: story.userProfileId,
+        character: story.character,
+        environment: story.environment,
+        theme: story.theme,
+        firstPageThumbnail: story.pages[0]?.imageUrl
+      });
+    }
+  };
+  
+  const toggleAudioPlayback = () => {
+    if (!audioRef.current) return;
+    
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      const playPromise = audioRef.current.play();
+      
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          console.error("Play error:", error);
+          toast({
+            title: t('reader.audio.playback.error.title'),
+            description: t('reader.audio.playback.error.description'),
+            variant: "destructive"
+          });
+        });
+      }
+    }
+  };
+  
+  const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!audioRef.current || !audioLoaded) return;
+    
+    const newTime = parseFloat(e.target.value);
+    audioRef.current.currentTime = newTime;
+    setAudioProgress(newTime);
+  };
+  
+  // Format time in MM:SS format
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-background z-50 overflow-hidden">
+      <div className="h-screen flex flex-col">
+        {/* Reader Header */}
+        <div className="bg-card px-4 py-3 shadow-md flex items-center justify-between">
+          <button 
+            className="p-2 rounded-full hover:bg-muted transition-colors"
+            onClick={onClose}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="flex items-center">
+            <div className="w-8 h-8 rounded-full overflow-hidden mr-2 bg-muted flex items-center justify-center">
+              {story.userProfile.thumbnail ? (
+                <img 
+                  src={story.userProfile.thumbnail} 
+                  alt={language === 'tr' ? "Profil resmi" : "Profile picture"} 
+                  className="w-full h-full object-cover" 
+                />
+              ) : (
+                <User className="h-5 w-5 text-muted-foreground" />
+              )}
+            </div>
+            <span className="font-medium text-foreground">
+              {story.userProfile.name}{t('reader.profile_story')}
+            </span>
+          </div>
+          <button 
+            className={`p-2 rounded-full hover:bg-muted transition-colors ${
+              isStoryFavorite ? 'text-red-500' : 'text-muted-foreground'
+            }`}
+            onClick={handleToggleFavorite}
+          >
+            <Heart className="h-5 w-5" fill={isStoryFavorite ? "currentColor" : "none"} />
+          </button>
+        </div>
+        
+        {/* Reader Content */}
+        <div className="flex-1 overflow-hidden">
+          <div className="h-full flex flex-col">
+            {/* Story Pages */}
+            <div className="flex-1 overflow-hidden relative">
+              {story.pages.map((page, index) => (
+                <div 
+                  key={page.id}
+                  className={`absolute inset-0 transition-transform duration-300 ease-in-out ${
+                    currentPage === index ? 'translate-x-0' : currentPage > index ? '-translate-x-full' : 'translate-x-full'
+                  }`}
+                  style={{ height: '100%' }}
+                >
+                  <div className={`h-full flex ${isMobile ? 'flex-col' : 'flex-row'}`}>
+                    {/* Image Section */}
+                    <div className={`${isMobile ? 'h-1/2 w-full' : 'h-full w-1/2'} flex-shrink-0 relative group`}>
+                      <div className="absolute inset-0 p-4 md:p-6">
+                        <div className="w-full h-full rounded-lg shadow-md border border-primary/20 overflow-hidden bg-card">
+                          {page.imageUrl ? (
+                            <>
+                              <img 
+                                src={page.imageUrl} 
+                                alt={`${story.character} in ${story.environment}`}
+                                className="w-full h-full object-contain bg-card/50" 
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            </>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-muted rounded-lg">
+                              <div className="flex flex-col items-center">
+                                <div className="w-16 h-16 animate-pulse bg-muted-foreground/20 rounded-full flex items-center justify-center">
+                                  <svg className="w-8 h-8 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                </div>
+                                <span className="text-sm text-muted-foreground mt-2">
+                                  {language === 'tr' ? 'Görsel Yükleniyor...' : 'Loading Image...'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Image attribution overlay */}
+                          <div className="absolute bottom-2 right-2 text-xs text-white/70 bg-black/30 px-2 py-1 rounded">
+                            <span>DALL-E</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Text and Audio Section */}
+                    <div className={`story-text-container ${isMobile ? 'h-1/2 w-full' : 'h-full w-1/2'} p-4 md:p-8 overflow-y-auto flex flex-col`}>
+                      <div className="flex-grow flex flex-col justify-center max-w-md mx-auto space-y-6">
+                        <div className="bg-card p-6 rounded-lg shadow-md border border-primary/20 transition-all hover:shadow-lg">
+                          <p className="story-text text-lg md:text-xl leading-relaxed text-foreground">
+                            {page.text}
+                          </p>
+                          <div className="text-xs text-right mt-4 text-muted-foreground">
+                            <span>Gemini AI</span>
+                          </div>
+                        </div>
+                        
+                        {/* Custom Audio Player */}
+                        <div className="audio-player bg-card rounded-lg shadow-md p-4 border border-primary/20 transition-all hover:shadow-lg">
+                          {/* Audio Element - Only rendered for the current page */}
+                          {currentPage === index && page.audioUrl && (
+                            <audio 
+                              ref={audioRef} 
+                              preload="auto" 
+                              hidden
+                              crossOrigin="anonymous"
+                            >
+                              <source src={page.audioUrl} type="audio/mpeg" />
+                              {language === 'tr' 
+                                ? 'Tarayıcınız audio elementini desteklemiyor.'
+                                : 'Your browser does not support the audio element.'}
+                            </audio>
+                          )}
+                          
+                          {/* Player Controls */}
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center">
+                              <Music className="h-4 w-4 mr-2 text-primary" />
+                              <h3 className="text-sm font-medium text-foreground">{t('reader.audio')}</h3>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                                {audioLoaded && currentPage === index ? 'TTS' : (language === 'tr' ? 'Hazırlanıyor' : 'Loading')}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {currentPage === index && page.audioUrl && !audioError ? (
+                            <div className="space-y-2">
+                              {/* Play/Pause and Time Display */}
+                              <div className="flex items-center space-x-2">
+                                <button 
+                                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                                    isPlaying 
+                                      ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
+                                      : 'bg-primary/10 text-primary hover:bg-primary/20'
+                                  }`}
+                                  onClick={toggleAudioPlayback}
+                                  disabled={!audioLoaded || currentPage !== index}
+                                >
+                                  {isPlaying ? (
+                                    <Pause className="h-5 w-5" />
+                                  ) : (
+                                    <Play className="h-5 w-5" />
+                                  )}
+                                </button>
+                                
+                                <div className="flex-1 flex items-center">
+                                  <span className="text-xs font-mono w-10 text-right">
+                                    {formatTime(audioProgress)}
+                                  </span>
+                                  
+                                  {/* Progress Bar */}
+                                  <div className="flex-1 mx-2 relative">
+                                    <input 
+                                      type="range" 
+                                      min="0" 
+                                      max={audioDuration || 100}
+                                      value={audioProgress}
+                                      onChange={handleProgressChange}
+                                      className="audio-player-control w-full h-2 appearance-none bg-muted rounded-full outline-none cursor-pointer"
+                                      style={{
+                                        background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${(audioProgress / (audioDuration || 1)) * 100}%, var(--muted) ${(audioProgress / (audioDuration || 1)) * 100}%, var(--muted) 100%)`
+                                      }}
+                                      disabled={!audioLoaded || currentPage !== index}
+                                    />
+                                  </div>
+                                  
+                                  <span className="text-xs font-mono w-10">
+                                    {formatTime(audioDuration)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center py-4">
+                              {audioError && currentPage === index ? (
+                                <div className="text-sm text-red-500">
+                                  {language === 'tr' 
+                                    ? 'Ses yüklenemedi. Lütfen daha sonra tekrar deneyin.' 
+                                    : 'Failed to load audio. Please try again later.'}
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+                                  <span className="ml-2 text-sm text-muted-foreground">
+                                    {t('reader.audio.loading')}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          
+                          <div className="text-xs text-right mt-2 text-muted-foreground">
+                            <span>Google Cloud TTS</span>
+                          </div>
+                        </div>
+                        
+                        <div className="text-center text-sm text-muted-foreground">
+                          {t('reader.page')} {index + 1} / {story.pages.length}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {/* Page Navigation */}
+            <div className="flex justify-between items-center p-4 bg-card shadow-md z-10 border-t border-primary/20">
+              <button 
+                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                onClick={handlePreviousPage}
+                disabled={currentPage === 0}
+                aria-label={language === 'tr' ? 'Önceki sayfa' : 'Previous page'}
+              >
+                <ArrowLeftCircle className="h-5 w-5" />
+              </button>
+              
+              <div className="flex space-x-2">
+                {story.pages.map((_, idx) => (
+                  <div 
+                    key={idx}
+                    className={`w-3 h-3 rounded-full transition-colors cursor-pointer ${
+                      currentPage === idx ? 'bg-primary' : 'bg-muted hover:bg-primary/50'
+                    }`}
+                    onClick={() => setCurrentPage(idx)}
+                    aria-label={language === 'tr' ? `Sayfa ${idx + 1}` : `Page ${idx + 1}`}
+                  ></div>
+                ))}
+              </div>
+              
+              <button 
+                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                onClick={handleNextPage}
+                disabled={currentPage === story.pages.length - 1}
+                aria-label={language === 'tr' ? 'Sonraki sayfa' : 'Next page'}
+              >
+                <ArrowRightCircle className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default StoryReader;
