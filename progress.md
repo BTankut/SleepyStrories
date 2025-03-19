@@ -1,6 +1,6 @@
 # SleepyStories - Project Progress
 
-**Last Updated:** March 19, 2025 at 7:15 PM
+**Last Updated:** March 19, 2025 at 8:15 PM
 
 ## Project Overview
 
@@ -64,6 +64,15 @@ The application allows users to create profiles for children, customize story el
 
 ## Recent Changes and Improvements
 
+### March 19, 2025 (8:15 PM)
+- GitHub Repository güvenli hale getirildi
+- Tüm API anahtarları için güvenli ortam değişken yapılandırması tamamlandı
+- Google Cloud kimlik bilgileri için özel bir dizin oluşturuldu
+- .gitignore dosyası tüm hassas bilgileri dışarıda bırakacak şekilde güncellendi
+- README.md dosyası detaylı kurulum talimatları ve güvenlik uyarılarıyla güncellendi
+- Örnek .env dosyası (.env.example) kapsamlı açıklamalarla genişletildi
+- Depo geçmişinde kalmış olabilecek hassas bilgiler temizlendi
+
 ### March 19, 2025 (7:15 PM)
 - Fixed favorites functionality in StoryReader component
 - Added navigation buttons for returning to main menu from stories
@@ -107,7 +116,9 @@ The application allows users to create profiles for children, customize story el
 The application requires the following environment variables:
 - `DALLE_API_KEY` - OpenAI API key for DALL-E image generation
 - `GEMINI_API_KEY` - Google API key for Gemini text generation
-- Google Cloud credentials for Text-to-Speech service
+- `GOOGLE_APPLICATION_CREDENTIALS` - Absolute path to Google Cloud service account credentials JSON file
+
+All these values must be stored in a `.env` file which is included in the `.gitignore` to prevent exposing sensitive information. Use the provided `.env.example` file as a template.
 
 ## Next Steps
 
