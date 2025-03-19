@@ -63,8 +63,12 @@ This application uses three different API services, and the credentials for thes
 
 3. Set up Google Cloud credentials
    - Create a service account in the Google Cloud Console and download the JSON key file
-   - Place the JSON key file in a secure location on your system (recommended location: `.google-cloud/google-credentials.json` in the project root)
-   - **IMPORTANT**: Make sure this file is in your `.gitignore` to prevent accidental exposure
+   - Create a `.google-cloud` directory in the project root:
+     ```
+     mkdir -p .google-cloud
+     ```
+   - Place the JSON key file in this directory (recommended filename: `.google-cloud/google-credentials.json`)
+   - **IMPORTANT**: This directory is already in `.gitignore` to prevent accidental exposure of credentials
 
 4. Set up environment variables
    - Copy the `.env.example` file to create a new `.env` file:
